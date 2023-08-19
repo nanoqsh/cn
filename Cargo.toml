@@ -1,0 +1,12 @@
+[package]
+name = "cn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.32", features = ["macros", "rt-multi-thread"] }
+
+[dependencies.axum]
+version = "0.6"
+default-features = false
+features = ["http1", "tokio"]
