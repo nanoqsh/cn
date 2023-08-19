@@ -1,20 +1,17 @@
-use {
-    axum::{response::Html, routing::get, Router, Server},
-    std::net::SocketAddr,
-};
+mod config;
+mod server;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/", get(handler));
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("listening on http://{addr}");
+    use crate::{config::Config, server};
 
-    let service = app.into_make_service();
-    if let Err(err) = Server::bind(&addr).serve(service).await {
-        eprintln!("error: {err}");
+    let conf = match Config::load("config.toml") {
+        Ok(conf) => conf,
+        Err(err) => {
+            eprintln!("{err}");
+            return;
+        }
     };
-}
 
-async fn handler() -> Html<&'static str> {
-    Html("<h1>Hello, World!</h1>")
+    server::run(conf).await;
 }
