@@ -2,16 +2,16 @@ use {
     serde::Deserialize,
     std::{
         fmt, fs,
-        net::{IpAddr, SocketAddr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         path::{Path, PathBuf},
     },
     toml::de,
 };
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
-    ip: IpAddr,
-    port: u16,
+    net: Net,
 }
 
 impl Config {
@@ -25,7 +25,7 @@ impl Config {
     }
 
     pub fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.ip, self.port)
+        SocketAddr::new(self.net.ip, self.net.port)
     }
 }
 
@@ -45,4 +45,16 @@ impl fmt::Display for Error {
             ),
         }
     }
+}
+
+const DEFAULT_IP: fn() -> IpAddr = || IpAddr::V4(Ipv4Addr::LOCALHOST);
+const DEFAULT_PORT: fn() -> u16 = || 3000;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Net {
+    #[serde(default = "DEFAULT_IP")]
+    ip: IpAddr,
+    #[serde(default = "DEFAULT_PORT")]
+    port: u16,
 }

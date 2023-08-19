@@ -1,11 +1,16 @@
+mod cli;
 mod config;
 mod server;
 
 #[tokio::main]
 async fn main() {
-    use crate::{config::Config, server};
+    use {
+        crate::{cli::Cli, config::Config, server},
+        clap::Parser,
+    };
 
-    let conf = match Config::load("config.toml") {
+    let cli = Cli::parse();
+    let conf = match Config::load(cli.conf_path()) {
         Ok(conf) => conf,
         Err(err) => {
             eprintln!("{err}");
