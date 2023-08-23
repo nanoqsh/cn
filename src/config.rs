@@ -11,21 +11,13 @@ use {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    net: Net,
+    pub net: Net,
 }
 
 impl Config {
-    pub fn load<P>(path: P) -> Result<Self, Error>
-    where
-        P: AsRef<Path>,
-    {
-        let path = path.as_ref();
+    pub fn load(path: &Path) -> Result<Self, Error> {
         let content = fs::read_to_string(path).map_err(|_| Error::Read(path.to_owned()))?;
         toml::from_str(&content).map_err(|err| Error::Parse(path.to_owned(), err))
-    }
-
-    pub fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.net.ip, self.net.port)
     }
 }
 
@@ -52,9 +44,15 @@ const DEFAULT_PORT: fn() -> u16 = || 3000;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Net {
+pub struct Net {
     #[serde(default = "DEFAULT_IP")]
     ip: IpAddr,
     #[serde(default = "DEFAULT_PORT")]
     port: u16,
+}
+
+impl Net {
+    pub fn socket_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.ip, self.port)
+    }
 }

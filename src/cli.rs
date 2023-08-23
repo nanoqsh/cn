@@ -1,4 +1,4 @@
-use clap::Parser;
+use {clap::Parser, std::path::Path};
 
 /// The lightweight link manager
 #[derive(Parser)]
@@ -10,7 +10,7 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn conf_path(&self) -> &str {
-        &self.config
+    pub fn conf_path(&self) -> &Path {
+        self.config.as_ref()
     }
 }

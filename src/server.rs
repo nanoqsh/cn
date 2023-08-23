@@ -1,9 +1,9 @@
 use {
-    crate::config::Config,
+    crate::config::Net,
     axum::{response::Html, routing::get, Router, Server},
 };
 
-pub async fn run(conf: Config) {
+pub async fn run(conf: Net) {
     let app = Router::new().route("/", get(handler));
     let addr = conf.socket_addr();
     println!("listening on http://{addr}");

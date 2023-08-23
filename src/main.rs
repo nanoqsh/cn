@@ -18,5 +18,5 @@ async fn main() {
         }
     };
 
-    server::run(conf).await;
+    server::run(conf.net).await;
 }
