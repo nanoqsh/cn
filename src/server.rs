@@ -1,5 +1,5 @@
 use {
-    crate::config::Net,
+    crate::{config::Net, db::Access},
     axum::{
         extract::Path,
         http::StatusCode,
@@ -7,11 +7,10 @@ use {
         routing::get,
         Router, Server,
     },
-    std::collections::HashMap,
 };
 
-pub async fn run(conf: Net) {
-    let app = Router::new().route("/:key", get(lookup));
+pub async fn run(conf: Net, db: Access) {
+    let app = Router::new().route("/:key", get(|Path(key)| load(key, db)));
     let addr = conf.socket_addr();
     println!("listening on http://{addr}");
 
@@ -21,8 +20,7 @@ pub async fn run(conf: Net) {
     }
 }
 
-async fn lookup(Path(path): Path<String>) -> Result<Redirect> {
-    let map = HashMap::from([(String::from("lol"), String::from("https://lol.com"))]);
-    let link = map.get(&path).ok_or(StatusCode::NOT_FOUND)?;
-    Ok(Redirect::temporary(link))
+async fn load(key: String, db: Access) -> Result<Redirect> {
+    let link = db.load(key).await.ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Redirect::temporary(&link))
 }

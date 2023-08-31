@@ -11,7 +11,10 @@ use {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
     pub net: Net,
+    #[serde(default)]
+    pub db: Db,
 }
 
 impl Config {
@@ -39,20 +42,38 @@ impl fmt::Display for Error {
     }
 }
 
-const DEFAULT_IP: fn() -> IpAddr = || IpAddr::V4(Ipv4Addr::LOCALHOST);
-const DEFAULT_PORT: fn() -> u16 = || 3000;
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Net {
-    #[serde(default = "DEFAULT_IP")]
     ip: IpAddr,
-    #[serde(default = "DEFAULT_PORT")]
     port: u16,
 }
 
 impl Net {
     pub fn socket_addr(&self) -> SocketAddr {
         SocketAddr::new(self.ip, self.port)
+    }
+}
+
+impl Default for Net {
+    fn default() -> Self {
+        Self {
+            ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            port: 3000,
+        }
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Db {
+    path: Option<PathBuf>,
+}
+
+impl Db {
+    const DEFAULT_PATH: &str = "db.sqlite";
+
+    pub fn path(&self) -> &Path {
+        self.path.as_deref().unwrap_or(Self::DEFAULT_PATH.as_ref())
     }
 }
