@@ -14,7 +14,7 @@ async fn main() {
     let conf = match Config::load(cli.conf_path()) {
         Ok(conf) => conf,
         Err(err) => {
-            eprintln!("{err}");
+            eprintln!("config error: {err}");
             return;
         }
     };
@@ -22,12 +22,15 @@ async fn main() {
     let (db, db_serv) = match db::make(&conf.db) {
         Ok(db) => db,
         Err(err) => {
-            eprintln!("{err}");
+            eprintln!("database error: {err}");
             return;
         }
     };
 
     let db_handle = tokio::spawn(db_serv.run());
     let server_handle = tokio::spawn(server::run(conf.net, db));
-    _ = tokio::join!(db_handle, server_handle);
+    tokio::select! {
+        Ok(Err(err)) = db_handle => eprintln!("database error: {err}"),
+        _ = server_handle => {}
+    }
 }

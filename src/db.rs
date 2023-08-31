@@ -10,7 +10,7 @@ use {
 pub fn make(conf: &Db) -> Result<(Access, Service), Error> {
     let conn = Connection::open(conf.path())?;
     let db = Database(conn);
-    db.init();
+    db.init()?;
 
     let (send, recv) = mpsc::channel(8);
     Ok((Access(send), Service { db, recv }))
@@ -44,18 +44,19 @@ pub struct Service {
 }
 
 impl Service {
-    pub async fn run(self) {
+    pub async fn run(self) -> Result<(), Error> {
         let Self { db, mut recv } = self;
-        loop {
-            match recv.recv().await {
-                Some(Event::Store { key, link }) => db.store_link(&key, &link).expect("io error"),
-                Some(Event::Load { key, res }) => {
-                    let out = db.load_link(&key).expect("io error");
+        while let Some(ev) = recv.recv().await {
+            match ev {
+                Event::Store { key, link } => db.store_link(&key, &link)?,
+                Event::Load { key, res } => {
+                    let out = db.load_link(&key)?;
                     res.send(out).expect("response");
                 }
-                None => break,
             }
         }
+
+        Ok(())
     }
 }
 
@@ -73,7 +74,7 @@ enum Event {
 struct Database(Connection);
 
 impl Database {
-    fn init(&self) {
+    fn init(&self) -> Result<(), Error> {
         const INIT_LINK: &str = "
             CREATE TABLE IF NOT EXISTS link ( \
                 k TEXT UNIQUE NOT NULL, \
@@ -81,7 +82,7 @@ impl Database {
             )
         ";
 
-        self.0.execute(INIT_LINK, ()).expect("execute sql");
+        self.0.execute(INIT_LINK, ()).map(drop)
     }
 
     fn store_link(&self, key: &str, link: &str) -> Result<(), Error> {
