@@ -19,7 +19,7 @@ async fn main() {
         }
     };
 
-    let (db, db_serv) = match db::make(conf.db) {
+    let (db, db_serv) = match db::make(&conf.db) {
         Ok(db) => db,
         Err(err) => {
             eprintln!("{err}");

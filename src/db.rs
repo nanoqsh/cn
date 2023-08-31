@@ -7,7 +7,7 @@ use {
     },
 };
 
-pub fn make(conf: Db) -> Result<(Access, Service), Error> {
+pub fn make(conf: &Db) -> Result<(Access, Service), Error> {
     let conn = Connection::open(conf.path())?;
     let db = Database(conn);
     db.init();
@@ -34,7 +34,7 @@ impl Access {
         self.0
             .send(ev)
             .await
-            .expect("the database service should be available")
+            .expect("the database service should be available");
     }
 }
 
