@@ -1,6 +1,7 @@
 use {
     crate::config::Db,
     rsql::{Connection, Error},
+    std::path::Path,
     tokio::sync::{
         mpsc::{self, Receiver, Sender},
         oneshot::{self, Sender as Response},
@@ -8,12 +9,19 @@ use {
 };
 
 pub fn make(conf: &Db) -> Result<(Access, Service), Error> {
-    let conn = Connection::open(conf.path())?;
-    let db = Database(conn);
-    db.init()?;
+    let db = Database::open(Some(conf.path()))?;
+    Ok(service(db))
+}
 
+#[cfg(test)]
+pub fn test() -> Result<(Access, Service), Error> {
+    let db = Database::open(None)?;
+    Ok(service(db))
+}
+
+fn service(db: Database) -> (Access, Service) {
     let (send, recv) = mpsc::channel(8);
-    Ok((Access(send), Service { db, recv }))
+    (Access(send), Service { db, recv })
 }
 
 #[derive(Clone)]
@@ -74,6 +82,17 @@ enum Event {
 struct Database(Connection);
 
 impl Database {
+    fn open(path: Option<&Path>) -> Result<Self, Error> {
+        let conn = match path {
+            Some(path) => Connection::open(path)?,
+            None => Connection::open_in_memory()?,
+        };
+
+        let db = Self(conn);
+        db.init()?;
+        Ok(db)
+    }
+
     fn init(&self) -> Result<(), Error> {
         const INIT_LINK: &str = "
             CREATE TABLE IF NOT EXISTS link ( \
