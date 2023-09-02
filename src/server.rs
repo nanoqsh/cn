@@ -1,5 +1,5 @@
 use {
-    crate::{config::Net, db::Access},
+    crate::{cache::Cache, config::Net},
     axum::{
         extract::Path,
         http::StatusCode,
@@ -8,7 +8,7 @@ use {
     },
 };
 
-pub async fn run(conf: Net, db: Access) {
+pub async fn run(conf: Net, db: Cache) {
     let app = Router::new()
         .route(
             "/store/:key",
@@ -28,11 +28,11 @@ pub async fn run(conf: Net, db: Access) {
     }
 }
 
-async fn store(db: Access, key: String, link: String) {
+async fn store(db: Cache, key: String, link: String) {
     db.store(key, link).await;
 }
 
-async fn load(db: Access, key: String) -> Result<Redirect> {
-    let link = db.load(key).await.ok_or(StatusCode::NOT_FOUND)?;
+async fn load(db: Cache, key: String) -> Result<Redirect> {
+    let link = db.fetch(key).await.ok_or(StatusCode::NOT_FOUND)?;
     Ok(Redirect::temporary(&link))
 }

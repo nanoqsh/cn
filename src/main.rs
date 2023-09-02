@@ -7,7 +7,7 @@ mod server;
 #[tokio::main]
 async fn main() {
     use {
-        crate::{cli::Cli, config::Config, server},
+        crate::{cache::Cache, cli::Cli, config::Config, server},
         clap::Parser,
     };
 
@@ -29,7 +29,9 @@ async fn main() {
     };
 
     let db_handle = tokio::spawn(db_serv.run());
-    let server_handle = tokio::spawn(server::run(conf.net, db));
+
+    let cache = Cache::new(12, db);
+    let server_handle = tokio::spawn(server::run(conf.net, cache));
     tokio::select! {
         Ok(Err(err)) = db_handle => eprintln!("database error: {err}"),
         _ = server_handle => {}

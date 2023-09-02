@@ -5,23 +5,30 @@ use {
         future::Future,
         sync::Arc,
     },
+    tokio::sync::RwLock,
 };
 
+#[derive(Clone)]
 pub struct Cache {
     db: Access,
-    lru: Lru,
+    lru: Arc<RwLock<Lru>>,
 }
 
 impl Cache {
     pub fn new(size: usize, db: Access) -> Self {
         Self {
             db,
-            lru: Lru::new(size),
+            lru: Arc::new(RwLock::new(Lru::new(size))),
         }
     }
 
-    pub async fn fetch(&mut self, key: String) -> Option<String> {
-        self.lru.fetch(key, |key| self.db.load(key)).await
+    pub async fn store(&self, key: String, link: String) {
+        self.db.store(key, link).await;
+    }
+
+    pub async fn fetch(&self, key: String) -> Option<String> {
+        let mut lru = self.lru.write().await;
+        lru.fetch(key, |key| self.db.load(key)).await
     }
 }
 
