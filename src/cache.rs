@@ -23,6 +23,11 @@ impl Cache {
     }
 
     pub async fn store(&self, key: String, link: String) {
+        {
+            let mut lru = self.lru.write().await;
+            lru.remove(&key);
+        }
+
         self.db.store(key, link).await;
     }
 
@@ -87,6 +92,13 @@ impl Lru {
 
         let index = self.keys.len() - index - 1;
         self.keys[index..].rotate_left(1);
+    }
+
+    fn remove(&mut self, key: &str) {
+        self.map.remove(key);
+        if let Some(index) = self.keys.iter().map(Arc::as_ref).position(|k| k == key) {
+            self.keys.remove(index);
+        }
     }
 }
 
