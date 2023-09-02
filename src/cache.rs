@@ -2,37 +2,58 @@ use {
     crate::db::Access,
     std::{
         collections::{hash_map::Entry, HashMap},
-        rc::Rc,
+        future::Future,
+        sync::Arc,
     },
 };
 
-type Key = Rc<str>;
-
 pub struct Cache {
     db: Access,
-    map: HashMap<Key, Option<String>>,
-    keys: Vec<Key>,
+    lru: Lru,
 }
 
 impl Cache {
     pub fn new(size: usize, db: Access) -> Self {
         Self {
             db,
+            lru: Lru::new(size),
+        }
+    }
+
+    pub async fn fetch(&mut self, key: String) -> Option<String> {
+        self.lru.fetch(key, |key| self.db.load(key)).await
+    }
+}
+
+type Key = Arc<str>;
+
+struct Lru {
+    map: HashMap<Key, Option<String>>,
+    keys: Vec<Key>,
+}
+
+impl Lru {
+    fn new(size: usize) -> Self {
+        Self {
             map: HashMap::with_capacity(size),
             keys: Vec::with_capacity(size),
         }
     }
 
-    pub async fn fetch(&mut self, key: String) -> Option<String> {
-        let key = Rc::from(key);
-        match self.map.entry(Rc::clone(&key)) {
+    async fn fetch<F, R>(&mut self, key: String, f: F) -> Option<String>
+    where
+        F: FnOnce(String) -> R,
+        R: Future<Output = Option<String>>,
+    {
+        let key = Key::from(key);
+        match self.map.entry(Key::clone(&key)) {
             Entry::Occupied(en) => {
                 let link = en.get().as_ref().cloned();
-                self.popup(&key);
+                self.lift_up(&key);
                 link
             }
             Entry::Vacant(en) => {
-                let link = self.db.load(key.as_ref().to_owned()).await;
+                let link = f(key.as_ref().to_owned()).await;
                 if self.keys.capacity() == 0 {
                 } else if self.keys.len() == self.keys.capacity() {
                     let removed = self.keys.remove(0);
@@ -49,7 +70,7 @@ impl Cache {
         }
     }
 
-    fn popup(&mut self, key: &Rc<str>) {
+    fn lift_up(&mut self, key: &Key) {
         let index = self
             .keys
             .iter()
@@ -68,14 +89,14 @@ mod tests {
 
     #[tokio::test]
     async fn cache_0() {
-        let mut cache = Cache::new(0, db().await);
+        let mut cache = Lru::new(0);
 
-        let v = cache.fetch(String::from("ak")).await;
+        let v = cache.test_fetch(String::from("ak")).await;
         assert_eq!(v, Some(String::from("av")));
         assert_eq!(cache.map.len(), 0);
         assert_eq!(cache.keys, vec![]);
 
-        let v = cache.fetch(String::from("bk")).await;
+        let v = cache.test_fetch(String::from("bk")).await;
         assert_eq!(v, Some(String::from("bv")));
         assert_eq!(cache.map.len(), 0);
         assert_eq!(cache.keys, vec![]);
@@ -83,97 +104,102 @@ mod tests {
 
     #[tokio::test]
     async fn cache_1() {
-        let mut cache = Cache::new(1, db().await);
+        let mut cache = Lru::new(1);
 
         // Fetch first key
-        let v = cache.fetch(String::from("ak")).await;
+        let v = cache.test_fetch(String::from("ak")).await;
         assert_eq!(v, Some(String::from("av")));
         assert_eq!(cache.map.len(), 1);
-        assert_eq!(cache.keys, vec![Rc::from("ak")]);
+        assert_eq!(cache.keys, vec![Key::from("ak")]);
 
         // Fetch this key again
-        let v = cache.fetch(String::from("ak")).await;
+        let v = cache.test_fetch(String::from("ak")).await;
         assert_eq!(v, Some(String::from("av")));
         assert_eq!(cache.map.len(), 1);
-        assert_eq!(cache.keys, vec![Rc::from("ak")]);
+        assert_eq!(cache.keys, vec![Key::from("ak")]);
 
         // Fetch second key
-        let v = cache.fetch(String::from("bk")).await;
+        let v = cache.test_fetch(String::from("bk")).await;
         assert_eq!(v, Some(String::from("bv")));
         assert_eq!(cache.map.len(), 1);
-        assert_eq!(cache.keys, vec![Rc::from("bk")]);
+        assert_eq!(cache.keys, vec![Key::from("bk")]);
     }
 
     #[tokio::test]
     async fn cache_2() {
-        let mut cache = Cache::new(2, db().await);
+        let mut cache = Lru::new(2);
 
         // Fetch first key
-        let v = cache.fetch(String::from("ak")).await;
+        let v = cache.test_fetch(String::from("ak")).await;
         assert_eq!(v, Some(String::from("av")));
         assert_eq!(cache.map.len(), 1);
-        assert_eq!(cache.keys, vec![Rc::from("ak")]);
+        assert_eq!(cache.keys, vec![Key::from("ak")]);
 
         // Fetch second key, first moves to left
-        let v = cache.fetch(String::from("bk")).await;
+        let v = cache.test_fetch(String::from("bk")).await;
         assert_eq!(v, Some(String::from("bv")));
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("ak"), Rc::from("bk")]);
+        assert_eq!(cache.keys, vec![Key::from("ak"), Key::from("bk")]);
 
         // Fetch next, prev moves to left
-        let v = cache.fetch(String::from("ck")).await;
+        let v = cache.test_fetch(String::from("ck")).await;
         assert_eq!(v, Some(String::from("cv")));
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("bk"), Rc::from("ck")]);
+        assert_eq!(cache.keys, vec![Key::from("bk"), Key::from("ck")]);
 
-        // Fetch cached key, it pops up
-        let v = cache.fetch(String::from("bk")).await;
+        // Fetch cached key, it lifts up
+        let v = cache.test_fetch(String::from("bk")).await;
         assert_eq!(v, Some(String::from("bv")));
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("ck"), Rc::from("bk")]);
+        assert_eq!(cache.keys, vec![Key::from("ck"), Key::from("bk")]);
 
         // Fetch next key, prev moves to left
-        let v = cache.fetch(String::from("dk")).await;
+        let v = cache.test_fetch(String::from("dk")).await;
         assert_eq!(v, None);
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("bk"), Rc::from("dk")]);
+        assert_eq!(cache.keys, vec![Key::from("bk"), Key::from("dk")]);
 
         // Fetch this key again, it keeps position
-        let v = cache.fetch(String::from("dk")).await;
+        let v = cache.test_fetch(String::from("dk")).await;
         assert_eq!(v, None);
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("bk"), Rc::from("dk")]);
+        assert_eq!(cache.keys, vec![Key::from("bk"), Key::from("dk")]);
     }
 
     #[tokio::test]
     async fn cache_3() {
-        let mut cache = Cache::new(3, db().await);
+        let mut cache = Lru::new(3);
 
-        let v = cache.fetch(String::from("ak")).await;
+        let v = cache.test_fetch(String::from("ak")).await;
         assert_eq!(v, Some(String::from("av")));
         assert_eq!(cache.map.len(), 1);
-        assert_eq!(cache.keys, vec![Rc::from("ak")]);
+        assert_eq!(cache.keys, vec![Key::from("ak")]);
 
-        let v = cache.fetch(String::from("bk")).await;
+        let v = cache.test_fetch(String::from("bk")).await;
         assert_eq!(v, Some(String::from("bv")));
         assert_eq!(cache.map.len(), 2);
-        assert_eq!(cache.keys, vec![Rc::from("ak"), Rc::from("bk")]);
+        assert_eq!(cache.keys, vec![Key::from("ak"), Key::from("bk")]);
 
-        let v = cache.fetch(String::from("ck")).await;
+        let v = cache.test_fetch(String::from("ck")).await;
         assert_eq!(v, Some(String::from("cv")));
         assert_eq!(cache.map.len(), 3);
         assert_eq!(
             cache.keys,
-            vec![Rc::from("ak"), Rc::from("bk"), Rc::from("ck")]
+            vec![Key::from("ak"), Key::from("bk"), Key::from("ck")]
         );
     }
 
-    async fn db() -> Access {
-        let (db, service) = crate::db::test().expect("test db");
-        tokio::spawn(service.run());
-        db.store(String::from("ak"), String::from("av")).await;
-        db.store(String::from("bk"), String::from("bv")).await;
-        db.store(String::from("ck"), String::from("cv")).await;
-        db
+    impl Lru {
+        async fn test_fetch(&mut self, key: String) -> Option<String> {
+            self.fetch(key, |key| async move {
+                match key.as_str() {
+                    "ak" => Some(String::from("av")),
+                    "bk" => Some(String::from("bv")),
+                    "ck" => Some(String::from("cv")),
+                    _ => None,
+                }
+            })
+            .await
+        }
     }
 }

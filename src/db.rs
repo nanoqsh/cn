@@ -9,19 +9,9 @@ use {
 };
 
 pub fn make(conf: &Db) -> Result<(Access, Service), Error> {
-    let db = Database::open(Some(conf.path()))?;
-    Ok(service(db))
-}
-
-#[cfg(test)]
-pub fn test() -> Result<(Access, Service), Error> {
-    let db = Database::open(None)?;
-    Ok(service(db))
-}
-
-fn service(db: Database) -> (Access, Service) {
+    let db = Database::open(conf.path())?;
     let (send, recv) = mpsc::channel(8);
-    (Access(send), Service { db, recv })
+    Ok((Access(send), Service { db, recv }))
 }
 
 #[derive(Clone)]
@@ -82,12 +72,8 @@ enum Event {
 struct Database(Connection);
 
 impl Database {
-    fn open(path: Option<&Path>) -> Result<Self, Error> {
-        let conn = match path {
-            Some(path) => Connection::open(path)?,
-            None => Connection::open_in_memory()?,
-        };
-
+    fn open(path: &Path) -> Result<Self, Error> {
+        let conn = Connection::open(path)?;
         let db = Self(conn);
         db.init()?;
         Ok(db)
